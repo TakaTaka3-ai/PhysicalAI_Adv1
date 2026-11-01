@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+
+"""
+Robot Action Publisher Module
+
+Publishes joint trajectory commands to control the robot's movement via
+'/crane_plus_arm_controller/joint_trajectory' topic.
+
+Motion sequence:
+    stand -> hand_up -> squat -> stand -> ...
+"""
+
+import rclpy
+from rclpy.node import Node
+
+from trajectory_msgs.msg import JointTrajectory
+from trajectory_msgs.msg import JointTrajectoryPoint
+from builtin_interfaces.msg import Duration
+
+
+class RobotActionPublisher(Node):
+    """
+    ROS2 node that publishes joint trajectory commands
+    repeatedly using a timer.
+    """
+
+    def __init__(self):
+        super().__init__('robot_action_publisher')
+
+        self.publisher = self.create_publisher(
+            JointTrajectory,
+            'crane_plus_arm_controller/joint_trajectory',
+            10
+        )
+
+        self.get_logger().info(
+            'Robot Action Publisher node has been started'
+        )
+
+        # -----------------------------
+        # Motion sequence
+        # -----------------------------
+        self.motion_sequence = [
+            ("stand",   [0.0, 0.0, 0.0, 0.0]),
+            ("hand_up", [0.0, -0.2, 0.3, 0.0]),
+            ("squat",   [0.0, 0.2, -0.3, 0.0]),
+        ]
+
+        # 起動直後に stand を送信
+        first_name, first_pose = self.motion_sequence[0]
+
+        self.get_logger().info(
+            f'Executing pose: {first_name}'
+        )
+
+        self.move_to_position(
+            first_pose,
+            time_from_start=3.0
+           )
+
+    def move_to_position(self, positions, time_from_start=3.0):
+        """
+        Publish trajectory command.
+
+        Args:
+            positions (list):
+                Joint positions.
+            time_from_start (float):
+                Time to reach target position.
+        """
+
+        msg = JointTrajectory()
+
+        msg.joint_names = [
+            'crane_plus_joint1',
+            'crane_plus_joint2',
+            'crane_plus_joint3',
+            'crane_plus_joint4'
+        ]
+
+        point = JointTrajectoryPoint()
+
+        point.positions = positions
+        point.velocities = [0.0] * len(positions)
+        point.accelerations = [0.0] * len(positions)
+
+        point.time_from_start = Duration(
+            sec=int(time_from_start),
+            nanosec=int(
+                (time_from_start - int(time_from_start))
+                * 1e9
+            )
+        )
+
+        msg.points.append(point)
+
+        self.publisher.publish(msg)
+
+        self.get_logger().info(
+            f'Published trajectory command: {positions}'
+        )
+
+    def timer_callback(self):
+        """
+        Timer callback executed every 3 seconds.
+        """
+
+        pose_name, pose = self.motion_sequence[self.current_index]
+
+        self.get_logger().info(
+            f'Executing pose: {pose_name}'
+        )
+
+        self.move_to_position(
+            pose,
+            time_from_start=3.0
+        )
+        # 次の姿勢へ
+        self.current_index += 1
+
+        # 末尾なら先頭へ戻る
+        self.current_index %= len(self.motion_sequence)
+
+
+def main(args=None):
+
+    rclpy.init(args=args)
+
+    node = RobotActionPublisher()
+
+    try:
+        rclpy.spin(node)
+
+    except KeyboardInterrupt:
+        node.get_logger().info(
+            'Movement interrupted by user'
+        )
+
+    finally:
+        node.destroy_node()
+
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+                                  
